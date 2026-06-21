@@ -1,4 +1,4 @@
-# AskBase v2 — Production-Grade RAG Platform
+# AskBase 
 
 AskBase is a multi-tenant document intelligence platform and full RAG research engine. It features an advanced hybrid retrieval pipeline, re-ranking layer, dynamic LLM router, and real-time response evaluation, all paired with a premium Vite + React frontend dashboard.
 
