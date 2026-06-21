@@ -41,6 +41,10 @@ export const documentService = {
     });
     return res.data;
   },
+  getDocuments: async () => {
+    const res = await api.get('/documents');
+    return res.data;
+  },
   getSessions: async () => {
     const res = await api.get('/sessions');
     return res.data;

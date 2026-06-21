@@ -27,8 +27,12 @@ User ──> React Frontend ──> Flask REST API ──> RAG Pipeline ──> 
 - **Reciprocal Rank Fusion (RRF):** Merges dense and sparse retrieval ranks using standard fusion scores to optimize recall.
 - **Cross-Encoder Re-ranking:** Re-ranks the fused chunks using the state-of-the-art `cross-encoder/ms-marco-MiniLM-L-6-v2` transformer model to surface the top 5 candidates.
 - **Dynamic LLM Router:** Queries the primary LLaMA-3 model via Groq APIs with low-latency streaming and automatically falls back to Gemini API if rate limits or errors occur.
+- **Vectorized Semantic Cache:** Reduces API costs and latency. Incoming user queries are embedded and compared against cached queries in SQLite using cosine similarity. Matching queries (>0.92 similarity) return cached text instantly (<10ms).
+- **Context Library (Multi-Doc RAG):** Users can select one, multiple, or all uploaded files in the sidebar to query simultaneously. The search context merges chunks from all active indexes.
+- **Structured Server-Sent Events (SSE):** Chat tokens and pipeline metadata (evaluation scores, model source, and cache status) are streamed as standardized JSON packets over SSE.
+- **Stateful History Citations:** Citation source text and page numbers are saved directly in the SQLite message record, meaning that loading old chat sessions correctly restores and populates the source panel.
 - **Real-Time Evaluation:** Automatically evaluates every generated answer on *Faithfulness* and *Answer Relevance* metrics using sentence overlap and embedding distances.
-- **Interactive UI Dashboard:** Implements dark/light mode toggle, collapsible sidebar for document uploads and chat history, an active workspace for real-time streaming chat, a sidebar displaying exact highlighted citations/sources, and an analytics pane for visualizing RAG pipeline health.
+- **Memory & Dependency Optimizations:** Cosine similarity is computed natively using `numpy` to remove the heavy `scikit-learn` dependency, saving RAM and building Docker containers faster. The embedding model is loaded as a shared module to avoid redundant memory copies.
 
 ---
 
@@ -42,16 +46,21 @@ User ──> React Frontend ──> Flask REST API ──> RAG Pipeline ──> 
   - [backend/Dockerfile](file:///Users/rishita/Desktop/AskBase/backend/Dockerfile): Container builds for Flask.
   - **`backend/src/`**
     - [auth.py](file:///Users/rishita/Desktop/AskBase/backend/src/auth.py): User authentication logic, password hashing, and JWT token handling.
-    - [db.py](file:///Users/rishita/Desktop/AskBase/backend/src/db.py): SQLite helper initializing the DB tables (`users`, `documents`, `sessions`, `messages`, `chunks`).
+    - [db.py](file:///Users/rishita/Desktop/AskBase/backend/src/db.py): SQLite helper initializing tables and performance indexes (`users`, `documents`, `sessions`, `messages`, `chunks`, `semantic_cache`).
+    - [cache.py](file:///Users/rishita/Desktop/AskBase/backend/src/cache.py): Vectorized semantic caching module.
     - [ingestion.py](file:///Users/rishita/Desktop/AskBase/backend/src/ingestion.py): Handles PyMuPDF, python-docx parsing, and spaCy semantic chunking.
-    - [retrieval.py](file:///Users/rishita/Desktop/AskBase/backend/src/retrieval.py): Implements BM25, sentence-transformer embedding indexation, FAISS vector database queries, and Reciprocal Rank Fusion (RRF).
+    - [retrieval.py](file:///Users/rishita/Desktop/AskBase/backend/src/retrieval.py): Implements BM25, sentence-transformer embedding indexation, FAISS vector database queries, and Reciprocal Rank Fusion (RRF) for single and multi-document lookups.
     - [reranker.py](file:///Users/rishita/Desktop/AskBase/backend/src/reranker.py): Integrates Hugging Face Cross-Encoder model.
     - [router.py](file:///Users/rishita/Desktop/AskBase/backend/src/router.py): Governs streaming response synthesis from Groq or Gemini.
-    - [evaluation.py](file:///Users/rishita/Desktop/AskBase/backend/src/evaluation.py): Runs RAG evaluation metrics to track response accuracy.
+    - [evaluation.py](file:///Users/rishita/Desktop/AskBase/backend/src/evaluation.py): Runs RAG evaluation metrics using numpy.
+  - **`backend/tests/`**
+    - [test_rag.py](file:///Users/rishita/Desktop/AskBase/backend/tests/test_rag.py): Validates sentence chunking and RRF ranking.
+    - [test_cache.py](file:///Users/rishita/Desktop/AskBase/backend/tests/test_cache.py): Verifies semantic cache hits/misses and doc boundary isolation.
+    - [test_multi_doc.py](file:///Users/rishita/Desktop/AskBase/backend/tests/test_multi_doc.py): Verifies retrieval and index searches across multiple documents.
 - **`frontend/`**
   - [frontend/package.json](file:///Users/rishita/Desktop/AskBase/frontend/package.json): Frontend dependencies, containing React, Recharts, and styling settings.
   - [frontend/vite.config.js](file:///Users/rishita/Desktop/AskBase/frontend/vite.config.js): Bundler settings.
-  - `frontend/src/`: Core UI components (Sidebar, chat panel, source/citation inspector, and the analytics dashboard).
+  - `frontend/src/`: Core UI components (Sidebar document library checklist, chat streaming panel, source/citation inspector, and the analytics dashboard).
 
 ---
 
@@ -113,8 +122,10 @@ docker-compose up --build
   Retrieves all session histories for the logged-in user.
 - **POST** `/api/chat` (Requires JWT)
   Initiates a streaming RAG conversation query.
-  - Body: `{"session_id": "uuid", "query": "your question"}`
-  - Returns: Server-Sent Events (SSE) data stream of the generated answer, metadata, and citation IDs.
+  - Body: `{"session_id": "uuid", "query": "your question", "doc_ids": ["doc_uuid_1", "doc_uuid_2"]}`
+  - Returns: Server-Sent Events (SSE) data stream of JSON chunks:
+    - Token: `data: {"type": "token", "content": "chunk content"}`
+    - Metadata: `data: {"type": "metadata", "chunks": [...], "session_id": "...", "cache_hit": boolean, "model_used": "...", "metrics": {"faithfulness": 1.0, "answer_relevance": 1.0}}`
 
 ### Analytics Endpoints
 - **GET** `/api/analytics` (Requires JWT)
@@ -135,7 +146,8 @@ pytest
 
 ### Manual Verification
 1. Open the UI dashboard, register a new profile, and sign in.
-2. Drag and drop a document (e.g. a PDF research paper) in the sidebar.
-3. Submit a specific query. Watch the chat stream the reply in real time.
-4. Click on highlight tags inside the response to view exact matching source chunks in the panel.
-5. Open the **Analytics** panel in the navigation to verify average latency and faithfulness metrics are recorded.
+2. Ingest two documents using the sidebar button. Check both checkboxes in the Context Library.
+3. Submit a combined query. Watch the chat stream the reply in real time.
+4. Click on highlight tags inside the response or on past message bubbles to view citations in the Source Panel.
+5. Ask the same query again. Observe the immediate streaming speed and the **⚡ Cached Response** badge.
+6. Open the **Analytics** panel to verify average latency, cache efficiency ratio, and cost savings metrics are recorded.

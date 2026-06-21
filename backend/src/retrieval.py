@@ -10,22 +10,24 @@ from collections import defaultdict
 embedding_model = SentenceTransformer('all-mpnet-base-v2')
 
 class HybridRetriever:
-    def __init__(self, doc_id, index_dir="indexes"):
+    def __init__(self, doc_id=None, index_dir="indexes"):
+        self.index_dir_base = index_dir
         self.doc_id = doc_id
-        self.index_dir = os.path.join(index_dir, doc_id)
-        os.makedirs(self.index_dir, exist_ok=True)
-        
-        self.faiss_index_path = os.path.join(self.index_dir, "faiss.index")
-        self.bm25_path = os.path.join(self.index_dir, "bm25.pkl")
-        self.metadata_path = os.path.join(self.index_dir, "metadata.pkl")
-        
         self.faiss_index = None
         self.bm25 = None
-        self.metadata = [] # stores chunk_ids corresponding to index order
+        self.metadata = []  # stores chunk_ids corresponding to index order
         
-        self.load_indexes()
+        if doc_id:
+            self.index_dir = os.path.join(index_dir, doc_id)
+            os.makedirs(self.index_dir, exist_ok=True)
+            self.faiss_index_path = os.path.join(self.index_dir, "faiss.index")
+            self.bm25_path = os.path.join(self.index_dir, "bm25.pkl")
+            self.metadata_path = os.path.join(self.index_dir, "metadata.pkl")
+            self.load_indexes()
 
     def load_indexes(self):
+        if not self.doc_id:
+            return
         if os.path.exists(self.faiss_index_path):
             self.faiss_index = faiss.read_index(self.faiss_index_path)
         if os.path.exists(self.bm25_path):
@@ -39,6 +41,9 @@ class HybridRetriever:
         """
         Builds FAISS and BM25 indexes from a list of chunk dicts.
         """
+        if not self.doc_id:
+            raise ValueError("doc_id must be provided to build indexes.")
+            
         texts = [chunk["text"] for chunk in chunks]
         self.metadata = [chunk["chunk_id"] for chunk in chunks]
         
@@ -87,6 +92,44 @@ class HybridRetriever:
                 
         # Merge with Reciprocal Rank Fusion (RRF)
         return self._rrf(dense_results, sparse_results, k=60, top_n=top_k)
+
+    def retrieve_multi(self, doc_ids, query, top_k=20):
+        """
+        Retrieves top_k chunks across a list of document IDs.
+        """
+        if not doc_ids:
+            return []
+
+        if len(doc_ids) == 1:
+            retriever = HybridRetriever(doc_ids[0], index_dir=self.index_dir_base)
+            return retriever.retrieve(query, top_k=top_k)
+
+        dense_candidates = []
+        sparse_candidates = []
+
+        # Retrieve candidates from each document's index
+        for doc_id in doc_ids:
+            r = HybridRetriever(doc_id, index_dir=self.index_dir_base)
+            if not r.faiss_index or not r.bm25:
+                continue
+
+            # Dense search for this doc
+            query_embedding = embedding_model.encode([query], show_progress_bar=False)
+            D, I = r.faiss_index.search(np.array(query_embedding, dtype=np.float32), top_k)
+            for idx in I[0]:
+                if idx != -1 and idx < len(r.metadata):
+                    dense_candidates.append(r.metadata[idx])
+
+            # Sparse search for this doc
+            tokenized_query = query.lower().split()
+            bm25_scores = r.bm25.get_scores(tokenized_query)
+            top_n_sparse_idx = np.argsort(bm25_scores)[::-1][:top_k]
+            for idx in top_n_sparse_idx:
+                if bm25_scores[idx] > 0 and idx < len(r.metadata):
+                    sparse_candidates.append(r.metadata[idx])
+
+        # Merge results using RRF across all document candidates
+        return self._rrf(dense_candidates, sparse_candidates, k=60, top_n=top_k)
 
     def _rrf(self, dense_list, sparse_list, k=60, top_n=20):
         """

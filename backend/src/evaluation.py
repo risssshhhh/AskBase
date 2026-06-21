@@ -1,9 +1,5 @@
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-
-# Reusing the same embedding model
-eval_embedding_model = SentenceTransformer('all-mpnet-base-v2')
+from src.retrieval import embedding_model as eval_embedding_model
 
 def evaluate_rag(query, answer, retrieved_chunks, ground_truth=None):
     """
@@ -11,11 +7,17 @@ def evaluate_rag(query, answer, retrieved_chunks, ground_truth=None):
     """
     metrics = {}
     
-    # 1. Answer Relevance (Cosine similarity between query and answer embeddings)
-    query_emb = eval_embedding_model.encode([query])
-    answer_emb = eval_embedding_model.encode([answer])
-    relevance = cosine_similarity(query_emb, answer_emb)[0][0]
-    metrics['answer_relevance'] = float(relevance)
+    # 1. Answer Relevance (Cosine similarity between query and answer embeddings using numpy)
+    query_emb = eval_embedding_model.encode([query], show_progress_bar=False)[0]
+    answer_emb = eval_embedding_model.encode([answer], show_progress_bar=False)[0]
+    
+    norm_q = np.linalg.norm(query_emb)
+    norm_a = np.linalg.norm(answer_emb)
+    if norm_q > 0 and norm_a > 0:
+        relevance = float(np.dot(query_emb, answer_emb) / (norm_q * norm_a))
+    else:
+        relevance = 0.0
+    metrics['answer_relevance'] = relevance
     
     # 2. Faithfulness (Simplified: token overlap proportion between answer and chunks)
     # A true self-RAG would use an LLM here.

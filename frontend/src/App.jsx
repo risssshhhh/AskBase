@@ -14,7 +14,7 @@ function App() {
   
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
-  const [currentDocId, setCurrentDocId] = useState(null);
+  const [selectedDocIds, setSelectedDocIds] = useState([]);
   const [activeSources, setActiveSources] = useState([]);
 
   useEffect(() => {
@@ -41,7 +41,7 @@ function App() {
     setIsAuthenticated(false);
     setSessions([]);
     setCurrentSessionId(null);
-    setCurrentDocId(null);
+    setSelectedDocIds([]);
   };
 
   if (!isAuthenticated) {
@@ -55,7 +55,8 @@ function App() {
         setSessions={setSessions}
         currentSessionId={currentSessionId}
         setCurrentSessionId={setCurrentSessionId}
-        setCurrentDocId={setCurrentDocId}
+        selectedDocIds={selectedDocIds}
+        setSelectedDocIds={setSelectedDocIds}
       />
       
       <main className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -92,7 +93,7 @@ function App() {
             <>
               <ChatPanel 
                 currentSessionId={currentSessionId} 
-                currentDocId={currentDocId}
+                selectedDocIds={selectedDocIds}
                 setActiveSources={setActiveSources}
                 setCurrentSessionId={setCurrentSessionId}
               />

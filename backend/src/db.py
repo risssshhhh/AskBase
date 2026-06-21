@@ -55,6 +55,7 @@ def init_db():
             latency_ms REAL,
             model_used TEXT,
             faithfulness_score REAL,
+            retrieved_chunks TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(session_id) REFERENCES sessions(session_id)
         )
@@ -72,6 +73,41 @@ def init_db():
             FOREIGN KEY(doc_id) REFERENCES documents(doc_id)
         )
     """)
+
+    # Semantic Cache table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS semantic_cache (
+            cache_id TEXT PRIMARY KEY,
+            user_id INTEGER,
+            doc_id TEXT,
+            query_text TEXT NOT NULL,
+            query_embedding BLOB NOT NULL,
+            answer_text TEXT NOT NULL,
+            chunks_json TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(doc_id) REFERENCES documents(doc_id)
+        )
+    """)
+
+    # Alter table messages to add retrieved_chunks if it doesn't exist (for existing databases)
+    try:
+        cursor.execute("ALTER TABLE messages ADD COLUMN retrieved_chunks TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    # Alter table semantic_cache to add doc_id if not present
+    try:
+        cursor.execute("ALTER TABLE semantic_cache ADD COLUMN doc_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    # Performance Indexing
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(doc_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_user_doc ON semantic_cache(user_id, doc_id)")
 
     conn.commit()
     conn.close()

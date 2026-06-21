@@ -34,12 +34,23 @@ function SourcePanel({ sources }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', alignItems: 'center' }}>
               <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Chunk {idx + 1}</span>
-              <span style={{ 
-                backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-primary)', 
-                padding: '0.125rem 0.5rem', borderRadius: '1rem', fontSize: '0.75rem', fontWeight: 600
-              }}>
-                Page {source.page}
-              </span>
+              <div style={{ display: 'flex', gap: '0.25rem' }}>
+                {source.section && source.section !== 'Document Start' && source.section !== 'General' && (
+                  <span style={{ 
+                    backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', 
+                    padding: '0.125rem 0.5rem', borderRadius: '1rem', fontSize: '0.75rem',
+                    textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '100px', whiteSpace: 'nowrap'
+                  }} title={source.section}>
+                    {source.section}
+                  </span>
+                )}
+                <span style={{ 
+                  backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-primary)', 
+                  padding: '0.125rem 0.5rem', borderRadius: '1rem', fontSize: '0.75rem', fontWeight: 600
+                }}>
+                  Page {source.page}
+                </span>
+              </div>
             </div>
             <p style={{ color: 'var(--text-secondary)', lineHeight: 1.5, wordBreak: 'break-word' }}>
               {source.text}
